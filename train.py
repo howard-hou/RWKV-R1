@@ -165,10 +165,10 @@ if __name__ == "__main__":
 
     from src.trainer import train_callback
     from src.dataset import MyDataset
-    from src.rwkv_tokenizer import TRIE_TOKENIZER
+    from tokenizer.rwkv_tokenizer import TRIE_TOKENIZER
     from src.utils import freeze_rwkv_block
 
-    args.tokenizer = TRIE_TOKENIZER("src/rwkv_vocab_v20230424.txt")
+    args.tokenizer = TRIE_TOKENIZER("tokenizer/rwkv_vocab_v20230424.txt")
 
     train_data = MyDataset(args)
     args.vocab_size = train_data.vocab_size

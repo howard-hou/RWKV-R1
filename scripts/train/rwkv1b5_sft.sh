@@ -8,8 +8,8 @@ cd "$(dirname "$(dirname "$0")")/.."
 echo "Current working directory: $(pwd)"
 
 
-python train.py --load_model RWKV-x060-World-1B6-v2.1-20240328-ctx4096.pth \
-    --wandb "rwkv1b6-sft" --proj_dir out/rwkv1b6-sft \
+python train.py --load_model RWKV-x070-World-1.5B-v3-20250127-ctx4096.pth \
+    --wandb "rwkv1b5-sft" --proj_dir out/rwkv1b5-sft \
     --data_file path_to_json \
     --data_type "json" --vocab_size 65536 \
     --ctx_len 2048 --epoch_steps 1000 --epoch_count 1 --epoch_begin 0 --epoch_save 0 \

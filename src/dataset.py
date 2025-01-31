@@ -35,12 +35,12 @@ def _add_speaker_and_signal(conversations):
     """Add speaker and start/end signal on each round."""
     for sentence in conversations:
         from_str = sentence["from"]
-        if from_str.lower() == "human":
+        if from_str.lower() == "user":
             from_str = "User"
-        elif from_str.lower() == "gpt":
+        elif from_str.lower() == "assistant":
             from_str = "Assistant"
         else:
-            raise ValueError(f"Unknown speaker: {from_str}, must be human or gpt.")
+            raise ValueError(f"Unknown speaker: {from_str}, must be user or assistant.")
         
         if sentence["value"]: # for training, add end signal
             sentence["value"] = (from_str + ": " + sentence["value"] + DEFAULT_STOP_TOKEN)
@@ -56,9 +56,9 @@ def mask_targets(targets, tokenized_lens, speakers):
     '''
     cur_idx = 0
     for tokenized_len, speaker in zip(tokenized_lens, speakers):
-        if speaker == "human":
+        if speaker == "user":
             targets[cur_idx:cur_idx + tokenized_len] = IGNORE_INDEX
-        if speaker == "gpt":
+        if speaker == "assistant":
             targets[cur_idx:cur_idx + 3] = IGNORE_INDEX
         cur_idx += tokenized_len
 
