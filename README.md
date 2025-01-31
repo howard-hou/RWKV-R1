@@ -1,6 +1,6 @@
-# RWKV-SFT
+# RWKV-R1
 
-This is a simple RWKV-6 SFT code repository.
+Reproduction of Deepseek-R1 based on RWKV-7.
 
 ## Installation
 
@@ -10,12 +10,13 @@ To use this code, you need to have the following dependencies installed:
 - torch 2.0.0+
 - cuda 12.1+
 - pytorch-lightning==1.9.5
+- deepspeed
 
 ## Usage
 
 1. Clone this repository.
 2. Run the `train.py` file.
-3. see `scripts/train/rwkv1b6_sft` folder for more details.
+3. see `scripts/train/rwkv1b5_sft` folder for more details.
 
 ## comandline arguments
 
@@ -27,8 +28,8 @@ To use this code, you need to have the following dependencies installed:
 - `--num_layers_to_freeze`: Number of layers to freeze, starting from the first layer.
 
 ```bash
-python train.py --load_model RWKV-x060-World-1B6-v2.1-20240328-ctx4096.pth \
-    --wandb "rwkv1b6-sft" --proj_dir out/rwkv1b6-sft \
+python train.py --load_model RWKV-x070-World-1.5B-v3-20250127-ctx4096.pth \
+    --wandb "rwkv1b5-sft" --proj_dir out/rwkv1b5-sft \
     --data_file path_to_json \
     --data_type "json" --vocab_size 65536 \
     --ctx_len 2048 --epoch_steps 1000 --epoch_count 1 --epoch_begin 0 --epoch_save 0 \
