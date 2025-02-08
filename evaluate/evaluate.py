@@ -47,7 +47,13 @@ with open('output_base1.5.txt', 'w', encoding='utf-8') as file:
         correct_answer = data["answer"]
 
         # 使用模型生成回答
-        args = PIPELINE_ARGS(temperature=1.0, top_p=0.85, top_k=0)
+        args = PIPELINE_ARGS(temperature = 0, top_p = 0.9, top_k = 10, # top_k = 0 then ignore
+                     alpha_frequency = 0.5,
+                     alpha_presence = 0.5,
+                     alpha_decay = 0.996, # gradually decay the penalty
+                     token_ban = [], # ban the generation of some tokens
+                     token_stop = ["\n\n"], # stop generation whenever you see any token here
+                     chunk_len = 256) # split input into chunks to save VRAM (shorter -> slower)
         
         question = "Return your final response within \\boxed{}." + question
         
