@@ -31,22 +31,48 @@ def process_tokens_in_conversations(
     return conversations
 
 
+
 def _add_speaker_and_signal(conversations):
     """Add speaker and start/end signal on each round."""
     for sentence in conversations:
-        from_str = sentence["from"]
-        if from_str.lower() == "user":
+        from_str = sentence["from"].lower()
+        if from_str == "user":
             from_str = "User"
-        elif from_str.lower() == "assistant":
+        elif from_str == "assistant":
             from_str = "Assistant"
+        elif from_str == "system":
+            from_str = "System"
         else:
-            raise ValueError(f"Unknown speaker: {from_str}, must be user or assistant.")
+            raise ValueError(f"Unknown speaker: {from_str}, must be user, assistant, or system.")
         
-        if sentence["value"]: # for training, add end signal
-            sentence["value"] = (from_str + ": " + sentence["value"] + DEFAULT_STOP_TOKEN)
-        else: # for inference, not add end signal and no whitespace after colon
-            sentence["value"] = from_str + ":"
+        # 只对 user/system 添加前缀，避免干扰 assistant 的特殊格式
+        if from_str == "System":
+            sentence["value"] = from_str + ": " + sentence["value"]
+        elif from_str == "User":
+            sentence["value"] = from_str + ": " + sentence["value"] + DEFAULT_STOP_TOKEN
+        else:  # assistant 不加额外的标识
+            sentence["value"] = sentence["value"] + DEFAULT_STOP_TOKEN
     return conversations
+
+
+# def _add_speaker_and_signal(conversations):
+#     """Add speaker and start/end signal on each round."""
+#     for sentence in conversations:
+#         from_str = sentence["from"]
+#         if from_str.lower() == "user":
+#             from_str = "User"
+#         elif from_str.lower() == "assistant":
+#             from_str = "Assistant"
+#         elif from_str.lower() == "system":
+#             from_str = "System"
+#         else:
+#             raise ValueError(f"Unknown speaker: {from_str}, must be user or assistant.")
+        
+#         if sentence["value"]: # for training, add end signal
+#             sentence["value"] = (from_str + ": " + sentence["value"] + DEFAULT_STOP_TOKEN)
+#         else: # for inference, not add end signal and no whitespace after colon
+#             sentence["value"] = from_str + ":"
+#     return conversations
 
 
 def mask_targets(targets, tokenized_lens, speakers):
@@ -56,9 +82,13 @@ def mask_targets(targets, tokenized_lens, speakers):
     '''
     cur_idx = 0
     for tokenized_len, speaker in zip(tokenized_lens, speakers):
-        if speaker == "user":
+        #if speaker == "user":
+        #    targets[cur_idx:cur_idx + tokenized_len] = IGNORE_INDEX
+        #if speaker == "assistant":
+        #    targets[cur_idx:cur_idx + 3] = IGNORE_INDEX
+        if speaker.lower() == "user":
             targets[cur_idx:cur_idx + tokenized_len] = IGNORE_INDEX
-        if speaker == "assistant":
+        if speaker.lower() == "assistant":
             targets[cur_idx:cur_idx + 3] = IGNORE_INDEX
         cur_idx += tokenized_len
 
@@ -76,7 +106,7 @@ def pad_to_max_len(input_ids, targets, max_len, pad_token_id):
     return input_ids, targets
 
 
-def preprocess(conversations, tokenizer, ctx_len, pad_token_id=0, do_pad_to_max_length=True):
+def preprocess(conversations, tokenizer, ctx_len, pad_token_id=0, do_pad_to_max_length=True,system_info=None):
     """
     Given a list of sources, each is a conversation list. This transform:
     1. Add \n\n after each round;
@@ -85,6 +115,14 @@ def preprocess(conversations, tokenizer, ctx_len, pad_token_id=0, do_pad_to_max_
     4. Make a deepcopy as the target. Mask human words with IGNORE_INDEX.
     5. Pad to max length.
     """
+
+    if system_info:
+       system_conversation = {
+           "from": "system",
+           "value": system_info
+       }
+       conversations = [system_conversation] + conversations
+
     # add end signal and concatenate together
     conversations = _add_speaker_and_signal(conversations)
     input_text = "".join([sentence["value"] for sentence in conversations])
@@ -93,7 +131,8 @@ def preprocess(conversations, tokenizer, ctx_len, pad_token_id=0, do_pad_to_max_
         conv_ids = tokenizer.encode(conversation["value"])
         input_ids.extend(conv_ids)
         tokenized_lens.append(len(conv_ids))
-        speakers.append(conversation["from"])
+        #speakers.append(conversation["from"])
+        speakers.append(conversation["from"].capitalize())  # 确保 "user" -> "User"
     input_ids = torch.tensor(input_ids, dtype=torch.long)
     targets = copy.deepcopy(input_ids)
     mask_targets(targets, tokenized_lens, speakers)
@@ -132,11 +171,23 @@ class MyDataset(Dataset):
         else: # when step >= self.magic_prime, means the second epoch
             sample = self.list_data_dict_reverse[sample_idx]
 
+        system_info = sample.get("system", "")
+
         conversations = process_tokens_in_conversations(copy.deepcopy(sample["conversations"]))
 
         data_dict = preprocess(
             conversations,
             self.tokenizer,
             ctx_len=args.ctx_len,
-            pad_token_id=0)
+            pad_token_id=0,
+            system_info=system_info
+            )
+
+        # 统计加入 system 信息后的 tokens 长度
+        total_token_length = len(data_dict["input_ids"])
+        data_dict["total_token_length"] = total_token_length
+        if total_token_length > 2048:
+            print(f"Warning: Dataset sample token length {total_token_length} exceeds 2048!")
+
+
         return data_dict
