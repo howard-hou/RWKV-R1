@@ -9,6 +9,8 @@ from rwkv.model import RWKV
 from rwkv.utils import PIPELINE, PIPELINE_ARGS
 import json
 
+import re
+
 # 步骤 1：加载模型和分词器
 model = RWKV(model='/path/to/model', strategy='cuda fp16')
 # 初始化分词器管道
