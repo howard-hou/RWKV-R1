@@ -16,14 +16,17 @@ STOP_TOKEN_INDEX = 261
 DEFAULT_STOP_TOKEN = "\n\n"
 
 
-
 def process_tokens_in_conversations(
     conversations: Sequence[Dict],
+    system_info: str = None
 ) -> Sequence[Dict]:
     """
     Process tokens within conversations.
-    replace \n\n with \n
+    replace \n\n with \n.
+    add system info to the beginning of the conversation.
     """
+    if system_info and conversations[0]["from"].lower() == "user":
+        conversations[0]["value"] = system_info + "\n" + conversations[0]["value"]
     for sentence in conversations:
         sentence['value'] = sentence['value'].strip()
         sentence['value'] = re.sub(r"\n(\s*\n)+", '\n', sentence['value'])
@@ -31,48 +34,22 @@ def process_tokens_in_conversations(
     return conversations
 
 
-
 def _add_speaker_and_signal(conversations):
     """Add speaker and start/end signal on each round."""
     for sentence in conversations:
-        from_str = sentence["from"].lower()
-        if from_str == "user":
+        from_str = sentence["from"]
+        if from_str.lower() == "user":
             from_str = "User"
-        elif from_str == "assistant":
+        elif from_str.lower() == "assistant":
             from_str = "Assistant"
-        elif from_str == "system":
-            from_str = "System"
         else:
-            raise ValueError(f"Unknown speaker: {from_str}, must be user, assistant, or system.")
+            raise ValueError(f"Unknown speaker: {from_str}, must be user or assistant.")
         
-        # 只对 user/system 添加前缀，避免干扰 assistant 的特殊格式
-        if from_str == "System":
-            sentence["value"] = from_str + ": " + sentence["value"]
-        elif from_str == "User":
-            sentence["value"] = from_str + ": " + sentence["value"] + DEFAULT_STOP_TOKEN
-        else:  # assistant 不加额外的标识
-            sentence["value"] = sentence["value"] + DEFAULT_STOP_TOKEN
+        if sentence["value"]: # for training, add end signal
+            sentence["value"] = (from_str + ": " + sentence["value"] + DEFAULT_STOP_TOKEN)
+        else: # for inference, not add end signal and no whitespace after colon
+            sentence["value"] = from_str + ":"
     return conversations
-
-
-# def _add_speaker_and_signal(conversations):
-#     """Add speaker and start/end signal on each round."""
-#     for sentence in conversations:
-#         from_str = sentence["from"]
-#         if from_str.lower() == "user":
-#             from_str = "User"
-#         elif from_str.lower() == "assistant":
-#             from_str = "Assistant"
-#         elif from_str.lower() == "system":
-#             from_str = "System"
-#         else:
-#             raise ValueError(f"Unknown speaker: {from_str}, must be user or assistant.")
-        
-#         if sentence["value"]: # for training, add end signal
-#             sentence["value"] = (from_str + ": " + sentence["value"] + DEFAULT_STOP_TOKEN)
-#         else: # for inference, not add end signal and no whitespace after colon
-#             sentence["value"] = from_str + ":"
-#     return conversations
 
 
 def mask_targets(targets, tokenized_lens, speakers):
@@ -82,10 +59,6 @@ def mask_targets(targets, tokenized_lens, speakers):
     '''
     cur_idx = 0
     for tokenized_len, speaker in zip(tokenized_lens, speakers):
-        #if speaker == "user":
-        #    targets[cur_idx:cur_idx + tokenized_len] = IGNORE_INDEX
-        #if speaker == "assistant":
-        #    targets[cur_idx:cur_idx + 3] = IGNORE_INDEX
         if speaker.lower() == "user":
             targets[cur_idx:cur_idx + tokenized_len] = IGNORE_INDEX
         if speaker.lower() == "assistant":
@@ -106,7 +79,7 @@ def pad_to_max_len(input_ids, targets, max_len, pad_token_id):
     return input_ids, targets
 
 
-def preprocess(conversations, tokenizer, ctx_len, pad_token_id=0, do_pad_to_max_length=True,system_info=None):
+def preprocess(conversations, tokenizer, ctx_len, pad_token_id=0, do_pad_to_max_length=True):
     """
     Given a list of sources, each is a conversation list. This transform:
     1. Add \n\n after each round;
@@ -115,14 +88,6 @@ def preprocess(conversations, tokenizer, ctx_len, pad_token_id=0, do_pad_to_max_
     4. Make a deepcopy as the target. Mask human words with IGNORE_INDEX.
     5. Pad to max length.
     """
-
-    if system_info:
-       system_conversation = {
-           "from": "system",
-           "value": system_info
-       }
-       conversations = [system_conversation] + conversations
-
     # add end signal and concatenate together
     conversations = _add_speaker_and_signal(conversations)
     input_text = "".join([sentence["value"] for sentence in conversations])
@@ -131,8 +96,8 @@ def preprocess(conversations, tokenizer, ctx_len, pad_token_id=0, do_pad_to_max_
         conv_ids = tokenizer.encode(conversation["value"])
         input_ids.extend(conv_ids)
         tokenized_lens.append(len(conv_ids))
-        #speakers.append(conversation["from"])
-        speakers.append(conversation["from"].capitalize())  # 确保 "user" -> "User"
+        speakers.append(conversation["from"])
+        
     input_ids = torch.tensor(input_ids, dtype=torch.long)
     targets = copy.deepcopy(input_ids)
     mask_targets(targets, tokenized_lens, speakers)
@@ -141,15 +106,25 @@ def preprocess(conversations, tokenizer, ctx_len, pad_token_id=0, do_pad_to_max_
     return dict(input_ids=input_ids, labels=targets, input_text=input_text)
 
 
+def get_sample_idx_mapping_for_epoch(data_size, epoch_count=100):
+    ''' each epoch, we use the same data, but in different order '''
+    # set seed
+    np.random.seed(222)
+    sample_idx_mapping = {}
+    for epoch in range(epoch_count):
+        sample_idx_mapping[epoch] = np.random.permutation(data_size)
+    return sample_idx_mapping
+
+
 class MyDataset(Dataset):
     def __init__(self, args):
         self.args = args
         self.vocab_size = args.vocab_size
         self.tokenizer = args.tokenizer
         self.list_data_dict = json.load(open(args.data_file, "r"))
-        # shuffle the data, but deterministically
-        self.list_data_dict_reverse = [x for x in reversed(self.list_data_dict)]
         self.data_size = len(self.list_data_dict)
+        # shuffle the data, avoid overfitting
+        self.sample_idx_mapping = get_sample_idx_mapping_for_epoch(self.data_size)
         self.magic_prime = largest_3n_plus_2_prime(self.data_size)
         self.samples_per_epoch = self.args.epoch_steps * self.args.real_bsz
 
@@ -164,30 +139,30 @@ class MyDataset(Dataset):
         step = epoch * self.samples_per_epoch + (idx * world_size) + rank
         # use a magic prime to sample the dataset deterministically yet randomly enough
         sample_idx = (step * step * step) % self.magic_prime
-        # first epoch use the original data, then use the reversed data(avoid overfitting)
-        # normally, we don't train for more than 2 epoch
+        # first epoch use the original data, then use the sampled data(avoid overfitting)
         if step < self.magic_prime: # first epoch
             sample = self.list_data_dict[sample_idx]
-        else: # when step >= self.magic_prime, means the second epoch
-            sample = self.list_data_dict_reverse[sample_idx]
+        else: # when step >= self.magic_prime, we use the shuffled data
+            real_epoch = step // self.magic_prime
+            real_sample_idx = self.sample_idx_mapping[real_epoch][sample_idx]
+            sample = self.list_data_dict[real_sample_idx]
 
-        system_info = sample.get("system", "")
-
-        conversations = process_tokens_in_conversations(copy.deepcopy(sample["conversations"]))
+        conversations = process_tokens_in_conversations(
+            copy.deepcopy(sample["conversations"]),
+            system_info=sample.get("system", "")
+            )   
 
         data_dict = preprocess(
             conversations,
             self.tokenizer,
             ctx_len=args.ctx_len,
-            pad_token_id=0,
-            system_info=system_info
+            pad_token_id=0
             )
 
         # 统计加入 system 信息后的 tokens 长度
         total_token_length = len(data_dict["input_ids"])
         data_dict["total_token_length"] = total_token_length
-        if total_token_length > 2048:
-            print(f"Warning: Dataset sample token length {total_token_length} exceeds 2048!")
-
+        if total_token_length > args.ctx_len:
+            print(f"Warning: Dataset sample token length {total_token_length} exceeds {args.ctx_len}!")
 
         return data_dict
