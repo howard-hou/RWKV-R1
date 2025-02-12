@@ -384,7 +384,7 @@ class RWKV(pl.LightningModule):
                 self.trainer.my_loss_all = all
 
     def generate(self, input_ids, do_sample, temperature, top_p, max_new_tokens, stop_token_idx=261) -> list[int]:
-        ''' one mode to generate, only generate one sample at a time
+        ''' batch mode to generate, generate one batch at a time
         # input_ids: [bsz, seq_len]
         # do_sample: bool, false means greedy
         # temperature: float
