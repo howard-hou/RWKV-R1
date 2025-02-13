@@ -382,3 +382,43 @@ class RWKV(pl.LightningModule):
             all = self.all_gather(batch_parts)
             if self.trainer.is_global_zero:
                 self.trainer.my_loss_all = all
+
+    def generate(self, input_ids, do_sample, temperature, top_p, max_new_tokens, stop_token_idx=261) -> list[int]:
+        ''' batch mode to generate, generate one batch at a time
+        # input_ids: [bsz, seq_len]
+        # do_sample: bool, false means greedy
+        # temperature: float
+        # top_p: float
+        # max_new_tokens: int
+        # stop_token_idx: int, default is 261
+        return: 
+            generated_tokens: list of list of int, [[token1, token2, ...], [token1, token2, ...], ...]
+        '''
+        # prepare embedding, x: [bsz, seq_len, n_embd]
+        x = self.emb(input_ids)
+        bsz = x.size(0)
+        # generate
+        generated_tokens = [[] for _ in range(bsz)]
+        generated_token_logits = [[] for _ in range(bsz)]
+        generated_token_probs = [[] for _ in range(bsz)]
+        for i in range(max_new_tokens):
+            logits = self.forward(x)[:, -1, :]
+            if do_sample:
+                raise NotImplementedError
+            else: # greedy
+                # [bsz, vocab_size] -> [bsz, 1]
+                next_token = torch.argmax(logits, dim=-1, keepdim=True)
+                next_token_logit = logits.gather(-1, next_token)
+                probs = torch.softmax(logits, dim=-1)
+                next_token_prob = probs.gather(-1, next_token)
+            # append by batch
+            for j in range(bsz):
+                if generated_tokens[j][-1] == stop_token_idx:
+                    continue
+                generated_tokens[j].append(next_token[j].item())
+                generated_token_logits[j].append(next_token_logit[j].item())
+                generated_token_probs[j].append(next_token_prob[j].item())
+            # update x
+            x = torch.cat((x, self.rwkv.emb(next_token)), dim=-2)
+            x = x[:, -self.args.ctx_len:, :] # truncate
+        return generated_tokens, generated_token_logits, generated_token_probs
