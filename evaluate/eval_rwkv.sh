@@ -5,7 +5,7 @@ export RWKV_HEAD_SIZE_A="64"
 export CUDA_VISIBLE_DEVICES=1
 
 MODEL="RWKV"
-LOAD_MODEL={your_rwkv_pt_dir}/xxx.pth"
+LOAD_MODEL={your_rwkv_pt_dir}/xxx.pth
 MODEL_ARGS="model=$MODEL,load_model=${LOAD_MODEL},temperature=0,max_model_length=32768,max_new_tokens=1024,num_gpus=1,batch_size=4"
 # TASK=aime24
 TASK=math_500
