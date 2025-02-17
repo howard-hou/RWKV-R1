@@ -65,7 +65,9 @@ for line in tqdm(benchmark_data):
     question = data["question"]
     correct_answer = data["answer"]
     
-    question = "Return your final response within \\boxed{}." + question
+    # question = "Return your final response within \\boxed{}." + question
+    question = "Return your final response within \\boxed{}. A conversation between User and Assistant. The user asks a question, and the Assistant solves itThe assistant first thinks about the reasoning process in the mind and then provides the userwith the answer. The reasoning process and answer are enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e., <think> reasoning process here </think><answer> answer here </answer>.User: " + question + " Assistant:"
+        
     
     model_answer = pipeline.generate(question, token_count=4096, args=args)
     
