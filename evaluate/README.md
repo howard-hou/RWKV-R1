@@ -6,7 +6,6 @@ To use this code, you need to have the following dependencies installed:
 - python 3.11
 - torch 2.5.1
 - cuda 12.1+
-- pytorch-lightning==1.9.5
 
 ## Usage
 
