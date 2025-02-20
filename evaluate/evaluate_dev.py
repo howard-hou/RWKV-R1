@@ -10,7 +10,7 @@ from rwkv.utils import PIPELINE, PIPELINE_ARGS
 import json
 from pathlib import Path
 from tqdm import tqdm
-from datasets import load_dataset, load_from_disk
+from datasets import load_dataset
 
 import re
 import argparse
@@ -23,6 +23,7 @@ parser.add_argument('--dataset', type=str, default='HuggingFaceH4/MATH-500')
 parser.add_argument('--split', type=str, default='test')
 parser.add_argument('--strategy', type=str, default='cuda fp16')
 parser.add_argument('--output', type=str, default='output.txt')
+parser.add_argument('--debug', action='store_true')
 
 args = parser.parse_args()
 
@@ -58,55 +59,64 @@ def evaluate_answer(model_answer, correct_answer):
     # 这里可以添加更复杂的答案评估逻辑，如处理格式不一致等问题
     return model_answer.strip() == correct_answer.strip()
 
+def postprocess_answer(model_answer):
+    # 这里可以添加后处理逻辑，如去掉多余空格等
+    model_answer = model_answer.strip()
+    # extract <answer> ans </answer>
+    # Compile the regular expression with re.DOTALL to match across lines
+    pattern = re.compile(r'<answer>(.*?)</answer>', re.DOTALL)
+    match = pattern.search(model_answer)
+    if match:
+        model_answer = match.group(1).strip()
+    else: # format fail
+        model_answer = None
+    return model_answer
+
 # 步骤 4：使用模型回答问题并评估
-correct_count = 0
+if args.debug:
+    benchmark_data = benchmark_data[:10] # for debug
 total_count = len(benchmark_data)
-
-item_count = 0
-
-for line in tqdm(benchmark_data):
+ans_fail_case = []
+format_fail_case = []
+for line in tqdm(benchmark_data, desc="Evaluating"):
     question = line["question"]
     correct_answer = line["answer"]
     
-    # question = "Return your final response within \\boxed{}." + question
-    # prompt = "A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant first thinks about the reasoning process in the mind and then provides the userwith the answer. The reasoning process and answer are enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e., <think> reasoning process here </think>\n<answer> answer here </answer>. User: " + question + " Assistant: "
-
-    
-    question = "Write $\\frac{3}{20}$ as a decimal."
     prompt = f"{R1_INTRO}\n\nUser: {question}\n\nAssistant:"
-    model_answer = pipeline.generate(prompt, token_count=512, args=pipe_args)
-    
-    item_count += 1
-    print("prompt:", prompt)
-    print(f"Model Answer:{model_answer}")
-    print("Model Answer Length:", len(model_answer))
-    #file.write(f"{item_count}\t【{correct_answer}】\t{model_answer}\n")
-    # print(f"{item_count}\t{correct_answer}\t{model_answer}\n")
-    # print(model_answer," ++++ ", correct_answer, "\n")
-    
-    # print(item_count)
-    break
+    raw_answer = pipeline.generate(prompt, token_count=1024, args=pipe_args)
+    model_answer = postprocess_answer(raw_answer)
+    if model_answer is None:
+        format_fail_case.append((question, raw_answer, correct_answer))
+        continue
+    if not evaluate_answer(model_answer, correct_answer):
+        ans_fail_case.append((question, model_answer, correct_answer))
 
-# # 步骤 5：统计准确率
-# def count_correct_lines(file_path):
-#     correct_count = 0
-#     with open(file_path, 'r', encoding='utf-8') as file:
-#         for line in file:
-#             # 按制表符分割每行内容
-#             parts = line.strip().split('\t')
-#             if len(parts) == 3:
-#                 # 提取第二个内容（标准答案）并去掉方括号
-#                 standard_answer = parts[1].strip('【】')
-#                 # 提取第三个内容（机器生成答案）
-#                 machine_answer = parts[2]
-#                 # 构建正则表达式模式，用于检查机器生成答案中是否包含 boxed{标准答案}
-#                 pattern = re.compile(rf'boxed{{{re.escape(standard_answer)}}}')
-#                 if pattern.search(machine_answer):
-#                     correct_count += 1
-#     return correct_count
 
-# # 替换为你的实际文件路径
-# file_path = "output_base1.5.txt'
-# correct_lines = count_correct_lines(file_path)
-# print(f"正确的行数为: {correct_lines}")
+format_correct_count = total_count - len(format_fail_case)
+format_fail_count = len(format_fail_case)
+ans_correct_count = format_correct_count - len(ans_fail_case)
+print(f"Total examples: {total_count}")
+print(f"Correct format: {format_correct_count}")
+print(f"Fail format: {format_fail_count}")
+print(f"Correct answers: {ans_correct_count}")
+print(f"Format accuracy: {format_correct_count / total_count:.2f}")
+print(f"Answer accuracy: {ans_correct_count / format_correct_count:.2f}")
+
+# 步骤 5：print bad cases
+if format_fail_case and args.debug:
+    print("\nFormat Fail Cases:")
+    for i, (question, model_answer, correct_answer) in enumerate(format_fail_case):
+        print(f"Case {i+1}:")
+        print(f"Question: {question}")
+        print(f"Model Answer: {model_answer}")
+        print(f"Correct Answer: {correct_answer}")
+        print()
+if ans_fail_case and args.debug:
+    print("\nAnswer Fail Cases:")
+    for i, (question, model_answer, correct_answer) in enumerate(ans_fail_case):
+        print(f"Case {i+1}:")
+        print(f"Question: {question}")
+        print(f"Model Answer: {model_answer}")
+        print(f"Correct Answer: {correct_answer}")
+        print()
   
