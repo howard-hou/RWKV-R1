@@ -149,7 +149,7 @@ class MyDataset(Dataset):
 
         conversations = process_tokens_in_conversations(
             copy.deepcopy(sample["conversations"]),
-            system_info=sample.get("system", "")
+            system_info=sample.get("system", "").strip()
             )   
 
         data_dict = preprocess(
