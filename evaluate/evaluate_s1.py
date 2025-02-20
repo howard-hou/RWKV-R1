@@ -14,39 +14,27 @@ from datasets import load_dataset
 
 import re
 import argparse
-from prompt import BASE_INTRO, R1_INTRO, BOX_INTRO
+from prompt import S1_INTRO
 
 # 步骤 0: argparse
 parser = argparse.ArgumentParser(description='Evaluate RWKV model on benchmarks')
 parser.add_argument('model', type=str, help='path to model')
 parser.add_argument('--dataset', type=str, default='HuggingFaceH4/MATH-500')
 parser.add_argument('--split', type=str, default='test')
-parser.add_argument('--prompt', type=str, default='box')
 parser.add_argument('--strategy', type=str, default='cuda fp16')
 parser.add_argument('--output', type=str, default='output.txt')
 parser.add_argument('--debug', action='store_true')
 
 args = parser.parse_args()
-if args.prompt == 'base':
-    INTRO = BASE_INTRO
-    PATTERN = None
-elif args.prompt == 'r1':
-    INTRO = R1_INTRO
-    PATTERN = re.compile(r'<answer>(.*?)</answer>', re.DOTALL)
-elif args.prompt == 'box':
-    INTRO = BOX_INTRO
-    PATTERN = re.compile(r'\\boxed\{(.*?)\}', re.DOTALL)
-else:
-    raise ValueError("Invalid prompt type")
-
-print(f"Using prompt type: {args.prompt}")
-print(PATTERN)
 
 # 步骤 1：加载模型和分词器
 model_path = Path(args.model).parent / Path(args.model).stem
 model = RWKV(model=str(model_path), strategy=args.strategy)
 # 初始化分词器管道
 pipeline = PIPELINE(model, "rwkv_vocab_v20230424")
+# stop_token_ids = pipeline.encode("</think>")
+# print(stop_token_ids)
+# exit()
 pipe_args = PIPELINE_ARGS(temperature = 0.0, top_p = 0.5, top_k = 0, # top_k = 0 then ignore
                      alpha_frequency = 0.5,
                      alpha_presence = 0.5,
@@ -74,19 +62,9 @@ def evaluate_answer(model_answer, correct_answer):
     # 这里可以添加更复杂的答案评估逻辑，如处理格式不一致等问题
     return model_answer.strip() == correct_answer.strip()
 
-def postprocess_answer(model_answer, pattern):
+def postprocess_answer(model_answer):
     # 这里可以添加后处理逻辑，如去掉多余空格等
     model_answer = model_answer.strip()
-    # extract <answer> ans </answer>
-    # Compile the regular expression with re.DOTALL to match across lines
-    if pattern is not None:
-        match = pattern.search(model_answer)
-        if match:
-            model_answer = match.group(1).strip()
-        else: # format fail
-            model_answer = None
-    else:
-        model_answer = model_answer
     return model_answer
 
 # 步骤 4：使用模型回答问题并评估
@@ -99,9 +77,14 @@ for line in tqdm(benchmark_data, desc="Evaluating"):
     question = line["question"]
     correct_answer = line["answer"]
     
-    prompt = f"{INTRO}\n\nUser: {question}\n\nAssistant:"
-    raw_answer = pipeline.generate(prompt, token_count=1024, args=pipe_args)
-    model_answer = postprocess_answer(raw_answer, PATTERN)
+    prompt = f"{S1_INTRO}\n\nUser: {question}\n\nAssistant: <think>"
+    think_step = pipeline.generate(prompt, token_count=100, args=pipe_args)
+    if "</think>" in think_step:
+        think_step = think_step.split("</think>")[0]
+    think_step += " </think>\nFinal Answer:"
+    prompt_with_think = prompt + think_step
+    raw_answer = pipeline.generate(prompt_with_think, token_count=30, args=pipe_args)
+    model_answer = postprocess_answer(raw_answer)
     if model_answer is None:
         format_fail_case.append((question, raw_answer, correct_answer))
         continue
