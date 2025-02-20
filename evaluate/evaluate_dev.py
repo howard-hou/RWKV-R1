@@ -14,32 +14,36 @@ from datasets import load_dataset
 
 import re
 import argparse
-from prompt import BASE_INTRO, R1_INTRO, BOX_INTRO
+from introduction import BASE_INTRO, R1_INTRO, BOX_INTRO, SHORT_INTRO
 
 # 步骤 0: argparse
 parser = argparse.ArgumentParser(description='Evaluate RWKV model on benchmarks')
 parser.add_argument('model', type=str, help='path to model')
 parser.add_argument('--dataset', type=str, default='HuggingFaceH4/MATH-500')
 parser.add_argument('--split', type=str, default='test')
-parser.add_argument('--prompt', type=str, default='box')
+parser.add_argument('--intro', type=str, default='box', choices=['base', 'r1', 'box', 'short'])
 parser.add_argument('--strategy', type=str, default='cuda fp16')
 parser.add_argument('--output', type=str, default='output.txt')
 parser.add_argument('--debug', action='store_true')
 
 args = parser.parse_args()
-if args.prompt == 'base':
-    INTRO = BASE_INTRO
+if args.intro == 'base':
+    INTRO = BASE_INTRO.strip()
     PATTERN = None
-elif args.prompt == 'r1':
-    INTRO = R1_INTRO
+elif args.intro == 'r1':
+    INTRO = R1_INTRO.strip()
     PATTERN = re.compile(r'<answer>(.*?)</answer>', re.DOTALL)
-elif args.prompt == 'box':
-    INTRO = BOX_INTRO
+elif args.intro == 'box':
+    INTRO = BOX_INTRO.strip()
     PATTERN = re.compile(r'\\boxed\{(.*?)\}', re.DOTALL)
+elif args.intro == 'short':
+    INTRO = SHORT_INTRO.strip()
+    PATTERN = None
 else:
-    raise ValueError("Invalid prompt type")
+    raise ValueError("Invalid intro type")
 
-print(f"Using prompt type: {args.prompt}")
+print(f"Using intro type: {args.intro}")
+print(INTRO)
 print(PATTERN)
 
 # 步骤 1：加载模型和分词器
@@ -100,7 +104,7 @@ for line in tqdm(benchmark_data, desc="Evaluating"):
     correct_answer = line["answer"]
     
     prompt = f"{INTRO}\n\nUser: {question}\n\nAssistant:"
-    raw_answer = pipeline.generate(prompt, token_count=1024, args=pipe_args)
+    raw_answer = pipeline.generate(prompt, token_count=10, args=pipe_args)
     model_answer = postprocess_answer(raw_answer, PATTERN)
     if model_answer is None:
         format_fail_case.append((question, raw_answer, correct_answer))

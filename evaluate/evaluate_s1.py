@@ -14,7 +14,7 @@ from datasets import load_dataset
 
 import re
 import argparse
-from prompt import S1_INTRO
+from introduction import S1_INTRO
 
 # 步骤 0: argparse
 parser = argparse.ArgumentParser(description='Evaluate RWKV model on benchmarks')

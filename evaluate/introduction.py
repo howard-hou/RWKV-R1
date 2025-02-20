@@ -1,4 +1,5 @@
-BASE_INTRO = """User: Hi!
+BASE_INTRO = """
+User: Hi!
 
 Assistant: Hello! I'm your AI assistant. I'm here to help you with various tasks, such as answering questions, brainstorming ideas, drafting emails, writing code, providing advice, and much more.
 
@@ -9,7 +10,7 @@ Assistant: The sky appears blue due to a phenomenon called Rayleigh scattering, 
 User: What makes its color variant?
 
 Assistant: The color of the sky can vary depending on the time of day, weather conditions, and atmospheric pollutants. For example, during sunrise and sunset, the sky can appear red or orange due to the longer path the sunlight travels through the atmosphere, scattering more of the blue light away. Moreover, air pollution and cloud cover can also affect the color of the sky, making it appear grey or white.
-"""
+""".strip()
 
 R1_INTRO = """
 A conversation between User and Assistant. The user asks a question, and the Assistant solves it.
@@ -28,7 +29,7 @@ Assistant: <think> The capital of France is Paris. </think>
 User: What is the boiling point of water?
 
 Assistant: <think> The boiling point of water is 100 degrees Celsius at standard atmospheric pressure. </think>
-<answer> 100 degrees Celsius </answer>"""
+<answer> 100 degrees Celsius </answer>""".strip()
 
 BOX_INTRO = '''
 Please reason step by step, and put your final answer within \\boxed{}.
@@ -38,7 +39,7 @@ Assistant: To calculate the time taken for an object to reach the ground, we can
 
 User: What is the capital of France?
 
-Assistant: The capital of France is Paris. The capital of France is \\boxed{Paris}.'''
+Assistant: The capital of France is Paris. The capital of France is \\boxed{Paris}.'''.strip()
 
 S1_INTRO = '''
 You are a helpful assistant.
@@ -50,4 +51,14 @@ Final Answer: 3.2 seconds
 User: What is the capital of France?
 
 Assistant: <think> The capital of France is Paris. </think>
-Final Answer: Paris'''
+Final Answer: Paris'''.strip()
+
+SHORT_INTRO = '''
+Answer the question using a single word or phrase.
+User: What is the capital of France?
+
+Assistant: Paris
+
+User: What is the boiling point of water?
+
+Assistant: 100 degrees Celsius'''.strip()

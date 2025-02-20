@@ -10,7 +10,7 @@ import torch
 from rwkv.model import RWKV
 from rwkv.utils import PIPELINE, PIPELINE_ARGS
 import json
-from prompt import R1_INTRO
+from introduction import R1_INTRO
 
 # 步骤 1：加载模型和分词器
 #model = RWKV(model='/data/Tianyu/RWKV-R1/models/RWKV-x070-World-1.5B-v3-20250127-ctx4096', strategy='cuda fp16')
