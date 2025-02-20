@@ -9,6 +9,9 @@ To use this code, you need to have the following dependencies installed:
 - transformers==4.48.2
 - latex2sympy2_extended==1.0.6
 
+# pt to safetensors
+python pt_to_safetensors.py --input_path {pth_dir}/xxx.pth --output_path {hf_dir}/model.safetensors
+
 ## 注意
 以上软件版本要严格匹配，python< 3.11.10 triton会有报错
 ## Usage
