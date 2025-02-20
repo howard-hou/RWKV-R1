@@ -120,7 +120,7 @@ def convert_pth_to_safetensors(input_path, output_path, dtype=None):
     default_dict.update(**rwkvag_dict)
     # 保存为safetensors格式
     save_file(default_dict, output_path)
-    model = AutoModelForCausalLM.from_pretrained("./", trust_remote_code=True)
+    # model = AutoModelForCausalLM.from_pretrained("./", trust_remote_code=True)
     print(f"转换成功！文件已保存至：{output_path}")
 
 
