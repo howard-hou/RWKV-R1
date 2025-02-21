@@ -120,8 +120,8 @@ print(f"Total examples: {total_count}")
 print(f"Correct format: {format_correct_count}")
 print(f"Fail format: {format_fail_count}")
 print(f"Correct answers: {ans_correct_count}")
-print(f"Format accuracy: {format_correct_count / total_count:.2f}")
-print(f"Answer accuracy: {ans_correct_count / format_correct_count:.2f}")
+print(f"Format accuracy: {format_correct_count / total_count:.4f}")
+print(f"Answer accuracy: {ans_correct_count / format_correct_count:.4f}")
 
 # 步骤 5：print bad cases
 if format_fail_case and args.debug:
