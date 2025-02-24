@@ -48,9 +48,11 @@ __global__ void kernel_forward(const int B, const int T, const int C, const int 
         _y[t] = F(y);
     }
 
-    // 将最终状态输出到 `_s` 中
+    // At the end, store the final state for this batch and head into _s
+    // Store the state for the current thread (i) into the corresponding position in _s
     for (int j = 0; j < _N_; j++) {
-        _s[blockIdx.x * _N_ + i * _N_ + j] = state[j];
+        // Correctly map the state to the _s array with the indices [e, h, i, j]
+        _s[e * H * _N_ * _N_ + h * _N_ * _N_ + i * _N_ + j] = state[j];
     }
 }
 
