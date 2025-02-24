@@ -2,7 +2,7 @@
 # The RWKV Language Model - https://github.com/BlinkDL/RWKV-LM
 ########################################################################################################
 
-import torch, types, os, gc, math, json
+import torch, types, os, time, math, json
 import numpy as np
 import torch.nn as nn
 from torch.nn import functional as F
@@ -77,10 +77,10 @@ class BlockStateList:
 
     @staticmethod
     def empty(N, B, C, H, device, dtype):
-        wkv_states = torch.empty((N, B, H, C//H, C//H),
+        wkv_states = torch.zeros((N, B, H, C//H, C//H),
                                  device=device,
-                                 dtype=torch.bfloat16)
-        shift_states = torch.empty((N, 2, B, C), device=device, dtype=dtype)
+                                 dtype=dtype)
+        shift_states = torch.zeros((N, 2, B, 1, C), device=device, dtype=dtype)
         return BlockStateList(shift_states, wkv_states)
 
     def __getitem__(self, layer: int):
@@ -295,7 +295,7 @@ class RWKV_Tmix_x070(MyModule):
 
     def token_shift(self, x, v_first, shift_state):
         B, T, C = x.size()
-        xx = torch.concat((shift_state.unsqueeze(1), x[:, :-1]), dim=1) - x
+        xx = torch.concat((shift_state, x[:, :-1]), dim=1) - x
 
         xr = x + xx * self.x_r
         xw = x + xx * self.x_w
@@ -309,16 +309,16 @@ class RWKV_Tmix_x070(MyModule):
         k = self.key(xk)
         v = self.value(xv)
         if self.layer_id == 0:
-            v_first = v # store the v of the first layer
+           v_first = v # store the v of the first layer
         else:
-            v = v + (v_first - v) * torch.sigmoid(self.v0 + (xv @ self.v1) @ self.v2) # add value residual
+           v = v + (v_first - v) * torch.sigmoid(self.v0 + (xv @ self.v1) @ self.v2) # add value residual
         a = torch.sigmoid(self.a0 + (xa @ self.a1) @ self.a2) # a is "in-context learning rate"
         g = torch.sigmoid(xg @ self.g1) @ self.g2
 
         kk = k * self.k_k
         kk = F.normalize(kk.view(B,T,H,-1), dim=-1, p=2.0).view(B,T,C)
         k = k * (1 + (a-1) * self.k_a)
-        return r, w, k, v, kk, a, g, v_first, x[:, -1]
+        return r, w, k, v, kk, a, g, v_first, x[:, -1:]
 
     @MyFunction
     def forward(self, x, v_first, last_state: TimeMixState):
@@ -327,8 +327,9 @@ class RWKV_Tmix_x070(MyModule):
 
         r, w, k, v, kk, a, g, v_first, lx = self.token_shift(x, v_first, last_state.shift_state)
 
-        wkv_state = last_state.wkv_state#.clone().contiguous()
+        wkv_state = last_state.wkv_state.clone().contiguous()
         x, wkv_state = RWKV7_OP(r, w, k, v, -kk, kk*a, wkv_state)
+        # print(self.layer_id, x[0, -1].sum())
         x = self.ln_x(x.view(B * T, C)).view(B, T, C)
         
         x = x + ((r.view(B,T,H,-1)*k.view(B,T,H,-1)*self.r_k).sum(dim=-1, keepdim=True) * v.view(B,T,H,-1)).view(B,T,C)
@@ -353,12 +354,12 @@ class RWKV_CMix_x070(MyModule):
         self.value = nn.Linear(args.dim_ffn, args.n_embd, bias=False)
 
     @MyFunction
-    def forward(self, x):
-        xx = self.time_shift(x) - x
+    def forward(self, x, last_state: ChannelMixState):
+        xx = torch.concat((last_state.shift_state, x[:, :-1]), dim=1) - x
         
         k = x + xx * self.x_k
         k = torch.relu(self.key(k)) ** 2
-        return self.value(k)
+        return self.value(k), ChannelMixState(x[:, -1:])
 
 ########################################################################################################
 # RWKV Block
@@ -415,9 +416,9 @@ class RWKV(nn.Module):
             H = C // HEAD_SIZE
             N = HEAD_SIZE
             n_layer = len(self.blocks)
-            states = torch.zeros((n_layer, B, H, N, N), device=x.device, dtype=x.dtype)
+            states = BlockStateList.empty(n_layer, B, C, H, device=x.device, dtype=x.dtype)
 
-        v_first = torch.empty_like(x)
+        v_first = torch.zeros_like(x)
         for i, block in enumerate(self.blocks):
             x, v_first, s_new = block(x, v_first, states[i])
             states[i] = s_new
@@ -443,14 +444,17 @@ with torch.no_grad():
     C = args.n_embd
     H = C // HEAD_SIZE
     N = HEAD_SIZE
-    states = torch.zeros((args.n_layer, B, H, N, N), device="cuda", dtype=DTYPE)
+    states = BlockStateList.empty(args.n_layer, B, C, H, device="cuda", dtype=DTYPE)
     ########################################################################################################
 
     prompt = "The Eiffel tower is in the city of"
     input = tokenizer.encode(prompt)
     print(f'\nInput:\n{input}')
 
-    out, _ = model.forward(torch.tensor(input).reshape(1,-1).cuda(), states)
+    _, prefill_states = model.forward(torch.tensor(input[:-1]).reshape(1,-1).cuda())
+    print(prefill_states[0].time_mix_state.wkv_state.sum())
+    exit()
+    out, _ = model.forward(torch.tensor(input[-1:]).reshape(1,-1).cuda(), prefill_states)
     print(f'\nOutput:\n{out}')
 
     # logits of the last token => prediction for the next token    
@@ -477,17 +481,18 @@ with torch.no_grad():
     xsum = 0
     xcnt = 0
     xacc = 0
+    xstart = time.time()
     for d in todo:
         src = [0] + tokenizer.encode(d[0])
         dst = tokenizer.encode(d[1])
 
         logits = 0
         correct = True
-        states = torch.zeros((args.n_layer, B, H, N, N), device="cuda", dtype=DTYPE)
-        _, prefill_states = model.forward(torch.tensor(src).reshape(1,-1).cuda(), states)
-        out, _ = model.forward(torch.tensor(dst).reshape(1,-1).cuda(), prefill_states)
+        _, prefill_states = model.forward(torch.tensor(src[:-1]).reshape(1,-1).cuda())
+        out, _ = model.forward(torch.tensor(src[-1:]+dst).reshape(1,-1).cuda(), prefill_states)
         for i in range(len(dst)):
-            ooo = out[0,i].float()
+            # logits of the last token => prediction for the next token
+            ooo = out[0,i].float() # the output of last src
             probs = F.softmax(ooo, dim=-1)
             logits += math.log(probs[dst[i]])
             if torch.argmax(probs).item() != dst[i]:
@@ -498,3 +503,4 @@ with torch.no_grad():
         xacc += 1 if correct else 0
         if xcnt % 100 == 0 or xcnt == len(todo):
             print(xcnt, 'ppl', round(math.exp(-xsum / xcnt), 2), 'acc', round(xacc/xcnt*100, 2))
+            print(round((time.time()-xstart)/xcnt, 3), 'sec/iter')
