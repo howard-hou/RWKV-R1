@@ -48,6 +48,52 @@ def __nop(ob):
 MyModule = nn.Module
 MyFunction = __nop
 
+
+########################################################################################################
+# RWKV State Management
+########################################################################################################    
+class TimeMixState:
+    def __init__(self, shift_state: torch.Tensor, wkv_state: torch.Tensor):
+        self.shift_state = shift_state
+        self.wkv_state = wkv_state
+
+
+class ChannelMixState:
+    def __init__(self, shift_state: torch.Tensor):
+        self.shift_state = shift_state
+
+
+class BlockState:
+    def __init__(self, time_mix_state: TimeMixState,
+                 channel_mix_state: ChannelMixState):
+        self.time_mix_state = time_mix_state
+        self.channel_mix_state = channel_mix_state
+
+class BlockStateList:
+
+    def __init__(self, shift_states, wkv_states):
+        self.wkv_states = wkv_states
+        self.shift_states = shift_states
+
+    @staticmethod
+    def empty(N, B, C, H, device, dtype):
+        wkv_states = torch.empty((N, B, H, C//H, C//H),
+                                 device=device,
+                                 dtype=torch.bfloat16)
+        shift_states = torch.empty((N, 2, B, C), device=device, dtype=dtype)
+        return BlockStateList(shift_states, wkv_states)
+
+    def __getitem__(self, layer: int):
+        return BlockState(
+            TimeMixState(self.shift_states[layer, 0], self.wkv_states[layer]),
+            ChannelMixState(self.shift_states[layer, 1]))
+
+    def __setitem__(self, layer: int, state: BlockState):
+        self.shift_states[layer, 0] = state.time_mix_state.shift_state
+        self.wkv_states[layer] = state.time_mix_state.wkv_state
+        self.shift_states[layer, 1] = state.channel_mix_state.shift_state
+
+
 ########################################################################################################
 # RWKV Tokenizer (slow version)
 ########################################################################################################
@@ -246,12 +292,10 @@ class RWKV_Tmix_x070(MyModule):
         self.output = nn.Linear(C, C, bias=False)
         self.ln_x = nn.GroupNorm(H, C, eps=64e-5) # !!! notice eps value !!!
 
-    @MyFunction
-    def forward(self, x, v_first, s):
+
+    def token_shift(self, x, v_first, shift_state):
         B, T, C = x.size()
-        H = self.n_head
-        N = self.head_size
-        xx = self.time_shift(x) - x
+        xx = torch.concat((shift_state.unsqueeze(1), x[:, :-1]), dim=1) - x
 
         xr = x + xx * self.x_r
         xw = x + xx * self.x_w
@@ -274,13 +318,22 @@ class RWKV_Tmix_x070(MyModule):
         kk = k * self.k_k
         kk = F.normalize(kk.view(B,T,H,-1), dim=-1, p=2.0).view(B,T,C)
         k = k * (1 + (a-1) * self.k_a)
+        return r, w, k, v, kk, a, g, v_first, x[:, -1]
 
-        x, s = RWKV7_OP(r, w, k, v, -kk, kk*a, s)
+    @MyFunction
+    def forward(self, x, v_first, last_state: TimeMixState):
+        B, T, C = x.size()
+        H = self.n_head
+
+        r, w, k, v, kk, a, g, v_first, lx = self.token_shift(x, v_first, last_state.shift_state)
+
+        wkv_state = last_state.wkv_state#.clone().contiguous()
+        x, wkv_state = RWKV7_OP(r, w, k, v, -kk, kk*a, wkv_state)
         x = self.ln_x(x.view(B * T, C)).view(B, T, C)
         
         x = x + ((r.view(B,T,H,-1)*k.view(B,T,H,-1)*self.r_k).sum(dim=-1, keepdim=True) * v.view(B,T,H,-1)).view(B,T,C)
         x = self.output(x * g)
-        return x, v_first, s
+        return x, v_first, TimeMixState(lx, wkv_state)
     
 ########################################################################################################
 # RWKV ChannelMix
@@ -325,16 +378,17 @@ class Block(MyModule):
         self.ffn = RWKV_CMix_x070(args, layer_id)
         
     @MyFunction
-    def forward(self, x, v_first, state):
+    def forward(self, x, v_first, last_state: BlockState):
 
         if self.layer_id == 0:
             x = self.ln0(x)
 
-        xx, v_first, state = self.att(self.ln1(x), v_first, state)
-        x = x + xx
-        x = x + self.ffn(self.ln2(x))
+        x_attn, v_first, att_state = self.att(self.ln1(x), v_first, last_state.time_mix_state)
+        x = x + x_attn
 
-        return x, v_first, state
+        ffn_out ,ffn_state = self.ffn(self.ln2(x), last_state.channel_mix_state)
+        x = x + ffn_out
+        return x, v_first, BlockState(att_state, ffn_state)
 
 ########################################################################################################
 # RWKV Model
