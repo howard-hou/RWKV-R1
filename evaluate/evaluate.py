@@ -11,6 +11,7 @@ from rwkv.model import RWKV
 from rwkv.utils import PIPELINE, PIPELINE_ARGS
 import json
 from introduction import R1_INTRO
+import re
 
 # 步骤 1：加载模型和分词器
 #model = RWKV(model='/data/Tianyu/RWKV-R1/models/RWKV-x070-World-1.5B-v3-20250127-ctx4096', strategy='cuda fp16')
@@ -37,12 +38,10 @@ def evaluate_answer(model_answer, correct_answer):
     return model_answer.strip() == correct_answer.strip()
 
 # 步骤 4：使用模型回答问题并评估
-correct_count = 0
+item_count = 0
 total_count = len(math500_data)
 
-item_count = 0
-
-with open('output_2.txt', 'w', encoding='utf-8') as file:
+with open('output.txt', 'w', encoding='utf-8') as file:
 
     for data in math500_data:
         question = data["question"]
@@ -70,13 +69,36 @@ with open('output_2.txt', 'w', encoding='utf-8') as file:
         #print(model_answer," ++++ ", correct_answer, "\n")
         
         print(item_count)
-        
 
-    #    # 评估回答
-    #    is_correct = evaluate_answer(model_answer, correct_answer)
-    #    if is_correct:
-    #         correct_count += 1
+# 统计准确率
+correct_count = 0
+format_correct_count = 0
+with open('output.txt', 'r', encoding='utf-8') as file:
+    for line in file:
+        # 按制表符分割每行内容
+        parts = line.strip().split('\t')
+        if len(parts) == 3:
+            # 提取第二个内容（标准答案）并去掉方括号
+            standard_answer = parts[1].strip('【】')
+            # 提取第三个内容（机器生成答案）
+            machine_answer = parts[2]
 
-    # 计算准确率
-    #accuracy = correct_count / total_count
-    #print(f"Accuracy: {accuracy * 100:.2f}%")
+            # 统计格式正确率
+            think_start = "<think>"
+            think_end = "</think>"
+            answer_start = "<answer>"
+            answer_end = "</answer>"
+            text = machine_answer
+            # 检查四种标签是否都存在于文本中
+            if think_start in text and think_end in text and answer_start in text and answer_end in text:
+                format_correct_count += 1
+                    
+            pattern = re.compile(f'{re.escape(standard_answer)}')
+            if pattern.search(machine_answer):
+                correct_count += 1
+
+
+print(f"格式正确的行数为: {format_correct_count}")
+print(f"答案正确的行数为: {correct_count}")
+print(f"格式准确率为: {format_correct_count / total_count * 100:.2f}%")
+print(f"答案准确率为: {correct_count / total_count * 100:.2f}%")
