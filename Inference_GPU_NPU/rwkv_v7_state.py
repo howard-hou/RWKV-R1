@@ -35,6 +35,7 @@ D_GATE_LORA = 128
 args.vocab_size = 65536
 
 # DTYPE = torch.bfloat16
+# DTYPE = torch.float32
 DTYPE = torch.half # better
 
 args.head_size_a = 64 # don't change
@@ -92,6 +93,22 @@ class BlockStateList:
         self.shift_states[layer, 0] = state.time_mix_state.shift_state
         self.wkv_states[layer] = state.time_mix_state.wkv_state
         self.shift_states[layer, 1] = state.channel_mix_state.shift_state
+
+    def print_all_states(self, type='sum'):
+        for layer in range(len(self.wkv_states)):
+            state = self[layer]
+            if type == 'shape':
+                print(f"Layer {layer} State Shape:")
+                print(f"  Time Mix State - Shift State Shape: {state.time_mix_state.shift_state.shape}")
+                print(f"  Time Mix State - WKV State Shape: {state.time_mix_state.wkv_state.shape}")
+                print(f"  Channel Mix State - Shift State Shape: {state.channel_mix_state.shift_state.shape}")
+            elif type == 'sum':
+                print(f"Layer {layer} State Sum:")
+                print(f"  Time Mix State - Shift State: {state.time_mix_state.shift_state.sum()}")
+                print(f"  Time Mix State - WKV State: {state.time_mix_state.wkv_state.sum()}")
+                print(f"  Channel Mix State - Shift State: {state.channel_mix_state.shift_state.sum()}")
+            else:
+                raise ValueError(f"Invalid type: {type}, must be 'shape' or 'sum'")
 
 
 ########################################################################################################
@@ -329,7 +346,7 @@ class RWKV_Tmix_x070(MyModule):
 
         wkv_state = last_state.wkv_state.clone().contiguous()
         x, wkv_state = RWKV7_OP(r, w, k, v, -kk, kk*a, wkv_state)
-        # print(self.layer_id, x[0, -1].sum())
+
         x = self.ln_x(x.view(B * T, C)).view(B, T, C)
         
         x = x + ((r.view(B,T,H,-1)*k.view(B,T,H,-1)*self.r_k).sum(dim=-1, keepdim=True) * v.view(B,T,H,-1)).view(B,T,C)
@@ -452,8 +469,6 @@ with torch.no_grad():
     print(f'\nInput:\n{input}')
 
     _, prefill_states = model.forward(torch.tensor(input[:-1]).reshape(1,-1).cuda())
-    print(prefill_states[0].time_mix_state.wkv_state.sum())
-    exit()
     out, _ = model.forward(torch.tensor(input[-1:]).reshape(1,-1).cuda(), prefill_states)
     print(f'\nOutput:\n{out}')
 

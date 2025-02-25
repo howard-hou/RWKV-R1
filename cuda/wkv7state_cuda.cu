@@ -4,11 +4,12 @@
 
 typedef at::Half bf16;
 // typedef at::BFloat16 bf16;
+// typedef float bf16;
 
 template <typename F>
 __global__ void kernel_forward(const int B, const int T, const int C, const int H,
                                const F *__restrict__ const _r, const F *__restrict__ const _w, const F *__restrict__ const _k, const F *__restrict__ const _v, const F *__restrict__ const _a, const F *__restrict__ const _b,
-                               F *__restrict__ const _y, F *__restrict__ const _s)  // 新增输出状态的参数
+                               F *__restrict__ const _y, F *__restrict__ const _s)
 {
     const int e = blockIdx.x / H;
     const int h = blockIdx.x % H;
@@ -16,6 +17,11 @@ __global__ void kernel_forward(const int B, const int T, const int C, const int 
 
     float state[_N_] = {0};
     __shared__ float r[_N_], k[_N_], w[_N_], a[_N_], b[_N_];
+
+    // Load state from _s (passed from the outside) into the local state
+    for (int j = 0; j < _N_; j++) {
+        state[j] = float(_s[e * H * _N_ * _N_ + h * _N_ * _N_ + i * _N_ + j]);
+    }
 
     for (int _t = 0; _t < T; _t++)
     {
@@ -52,7 +58,7 @@ __global__ void kernel_forward(const int B, const int T, const int C, const int 
     // Store the state for the current thread (i) into the corresponding position in _s
     for (int j = 0; j < _N_; j++) {
         // Correctly map the state to the _s array with the indices [e, h, i, j]
-        _s[e * H * _N_ * _N_ + h * _N_ * _N_ + i * _N_ + j] = state[j];
+        _s[e * H * _N_ * _N_ + h * _N_ * _N_ + i * _N_ + j] = F(state[j]);
     }
 }
 

@@ -3,6 +3,7 @@
 
 typedef at::Half bf16;
 // typedef at::BFloat16 bf16;
+// typedef float bf16;
 
 void cuda_forward(int B, int T, int C, int H, bf16 *r, bf16 *w, bf16 *k, bf16 *v, bf16 *a, bf16 *b, bf16 *y, bf16 *s);
 
